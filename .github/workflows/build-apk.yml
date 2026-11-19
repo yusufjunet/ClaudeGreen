@@ -1,0 +1,69 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Ubah dua baris ini untuk akun kedua
+env:
+  APP_ID: com.yusuf.claudeakun3
+  APP_NAME: Claude Green
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Buat proyek
+        run: |
+          mkdir -p app/www
+          cd app
+          echo '{"name":"claude-wrapper","version":"1.0.0","private":true,"dependencies":{"@capacitor/android":"^6.1.0","@capacitor/cli":"^6.1.0","@capacitor/core":"^6.1.0"}}' > package.json
+          echo "{\"appId\":\"$APP_ID\",\"appName\":\"$APP_NAME\",\"webDir\":\"www\",\"server\":{\"url\":\"https://claude.ai\",\"cleartext\":false,\"allowNavigation\":[\"claude.ai\",\"*.claude.ai\",\"*.anthropic.com\",\"accounts.google.com\",\"appleid.apple.com\"]},\"android\":{\"allowMixedContent\":false}}" > capacitor.config.json
+          echo '<!doctype html><html><head><meta charset="utf-8"><title>Claude</title></head><body>Membuka claude.ai...</body></html>' > www/index.html
+
+      - name: Siapkan Android
+        working-directory: app
+        run: |
+          npm install
+          npx cap add android
+          npx cap sync android
+
+      - name: Pasang kode login dan download
+        working-directory: app
+        run: |
+          for N in MainActivity FileSaver NameFix; do
+            test -f ../$N.java || { echo "::error::$N.java tidak ada di folder utama repo"; exit 1; }
+          done
+          D=$(dirname "$(find android/app/src/main/java -name MainActivity.java | head -n 1)")
+          for N in MainActivity FileSaver NameFix; do
+            sed "s/APP_ID_PLACEHOLDER/$APP_ID/" ../$N.java > "$D/$N.java"
+          done
+
+      - name: Pasang ikon
+        working-directory: app
+        run: |
+          if [ ! -f ../icon-only.png ] || [ ! -f ../pasang_ikon.py ]; then
+            echo "::warning::icon-only.png atau pasang_ikon.py tidak ada, ikon bawaan dipakai"
+            exit 0
+          fi
+          python3 -m pip install --quiet pillow || python3 -m pip install --quiet --break-system-packages pillow
+          python3 ../pasang_ikon.py
+
+      - name: Build APK
+        working-directory: app/android
+        run: ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-green-apk
+          path: app/android/app/build/outputs/apk/debug/app-debug.apk
